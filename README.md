@@ -22,6 +22,9 @@ $ ./compile.sh
 $ ./build/src/example
 ```
 
+## Shortcut
+Refer to `shortcut` directory. This does not require cmake. Simpler way to get started.
+
 ## Important files
 * src/example.cpp - Your web app code.
 * src/CMakeLists.txt - Edit this file if there is new source code or HTML template file.
