@@ -1,5 +1,5 @@
 # crow-template
-Template to quickly get started with Crow C++ micro web framework
+Template to quickly get started with [Crow](https://github.com/ipkn/crow) C++ micro web framework.
 
 ## Installation steps
 * On Ubuntu
