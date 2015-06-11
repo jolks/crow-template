@@ -40,18 +40,22 @@ int main()
     //});
 
     // more json example
-    // e.g. curl -X POST http://127.0.0.1:8080/add_json -d '{"a": 1, "b": 3, "message": "Hello!"}'
+    // e.g. curl -X POST -H 'X-TEST-Header: MyGoodness' http://127.0.0.1:8080/add_json -d '{"a": 1, "b": 3, "message": "Hello!"}'
     CROW_ROUTE(app, "/add_json")
     .methods("POST"_method)
     ([](const crow::request& req){
         auto x = crow::json::load(req.body);
+
+        // get header value for X-TEST-Header
+        string header_str = req.get_header_value("X-TEST-Header");
+
         if (!x)
             return crow::response(400);
         int sum = x["a"].i()+x["b"].i();
         string message = x["message"].s();
 
         std::ostringstream os;
-        os << message << sum;
+        os << message << " " << sum << " " << header_str;
         return crow::response{os.str()};
     });
 
