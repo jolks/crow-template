@@ -58,6 +58,21 @@ int main()
         return crow::response{os.str()};
     });
 
+    // To test:-
+    // curl -X GET http://127.0.0.1:8080/multi_method
+    // curl -X POST http://127.0.0.1:8080/multi_method
+    CROW_ROUTE(app, "/multi_method")
+    .methods("POST"_method, "GET"_method)
+    ([](const crow::request& req){
+
+        // get the METHOD name though limited to POST and GET
+        string method_name = crow::method_name(req.method);
+
+        std::ostringstream os;
+        os << method_name;
+        return crow::response{os.str()};
+    });
+
     app.port(8080)
         .multithreaded()
         .run();
