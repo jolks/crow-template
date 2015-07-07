@@ -46,7 +46,7 @@ int main()
     ([](const crow::request& req){
         auto x = crow::json::load(req.body);
 
-        // get header value for X-TEST-Header
+        // Get header value for X-TEST-Header
         string header_str = req.get_header_value("X-TEST-Header");
 
         if (!x)
@@ -59,6 +59,7 @@ int main()
         return crow::response{os.str()};
     });
 
+    // Limit to only POST and GET
     // To test:-
     // curl -X GET http://127.0.0.1:8080/multi_method
     // curl -X POST http://127.0.0.1:8080/multi_method
@@ -66,7 +67,7 @@ int main()
     .methods("POST"_method, "GET"_method)
     ([](const crow::request& req){
 
-        // get the METHOD name though limited to POST and GET
+        // get the METHOD name
         string method_name = crow::method_name(req.method);
 
         std::ostringstream os;
