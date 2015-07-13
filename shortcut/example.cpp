@@ -74,12 +74,6 @@ int main()
         return crow::response{os.str()};
     });
 
-    CROW_ROUTE(app, "/manipulate_request")
-    .methods("POST"_method, "GET"_method)
-    ([](const crow::request& req){
-
-    });
-
     app.port(8080)
         .multithreaded()
         .run();
