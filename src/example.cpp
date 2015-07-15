@@ -1,10 +1,9 @@
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "crow.h"
 #include "json.h"
-
-using namespace std;
 
 int main()
 {
@@ -15,11 +14,26 @@ int main()
         return "About Crow example.";
     });
 
-    // simple json response
+    // JSON response
+    // Source: https://github.com/ipkn/crow/blob/master/tests/unittest.cpp
     CROW_ROUTE(app, "/json")
     ([]{
         crow::json::wvalue x;
         x["message"] = "Hello, World!";
+        x["numbers"]["x"] = 3;
+        x["numbers"]["y"] = 5;
+
+        x["scores"][0] = 1;
+        x["scores"][1] = "king";
+        x["scores"][2] = 3.5;
+
+        x["scores"][3][0] = "real";
+        x["scores"][3][1] = false;
+        x["scores"][3][2] = true;
+
+        x["tree"]["a1"]["b"]["c"] = nullptr;
+        x["tree"]["a2"] = std::vector<int>{1,2,3};
+
         return x;
     });
 
@@ -47,12 +61,12 @@ int main()
         auto x = crow::json::load(req.body);
 
         // Get header value for X-TEST-Header
-        string header_str = req.get_header_value("X-TEST-Header");
+        std::string header_str = req.get_header_value("X-TEST-Header");
 
         if (!x)
             return crow::response(400);
         int sum = x["a"].i()+x["b"].i();
-        string message = x["message"].s();
+        std::string message = x["message"].s();
 
         std::ostringstream os;
         os << message << " " << sum << " " << header_str;
@@ -68,7 +82,7 @@ int main()
     ([](const crow::request& req){
 
         // get the METHOD name
-        string method_name = crow::method_name(req.method);
+        std::string method_name = crow::method_name(req.method);
 
         std::ostringstream os;
         os << method_name;
