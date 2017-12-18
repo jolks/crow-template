@@ -8,11 +8,12 @@
 #include <boost/lexical_cast.hpp>
 #include <vector>
 
-#include "common.h"
-#include "http_response.h"
-#include "http_request.h"
-#include "utility.h"
-#include "logging.h"
+#include "crow/common.h"
+#include "crow/http_response.h"
+#include "crow/http_request.h"
+#include "crow/utility.h"
+#include "crow/logging.h"
+#include "crow/websocket.h"
 
 namespace crow
 {
@@ -29,8 +30,26 @@ namespace crow
         }
         
         virtual void validate() = 0;
+        std::unique_ptr<BaseRule> upgrade()
+		{
+			if (rule_to_upgrade_)
+				return std::move(rule_to_upgrade_);
+			return {};
+		}
 
         virtual void handle(const request&, response&, const routing_params&) = 0;
+        virtual void handle_upgrade(const request&, response& res, SocketAdaptor&&) 
+		{
+			res = response(404);
+			res.end();
+		}
+#ifdef CROW_ENABLE_SSL
+        virtual void handle_upgrade(const request&, response& res, SSLAdaptor&&) 
+		{
+			res = response(404);
+			res.end();
+		}
+#endif
 
         uint32_t get_methods()
         {
@@ -38,10 +57,13 @@ namespace crow
         }
 
     protected:
-        uint32_t methods_{1<<(int)HTTPMethod::GET};
+        uint32_t methods_{1<<(int)HTTPMethod::Get};
 
         std::string rule_;
         std::string name_;
+
+		std::unique_ptr<BaseRule> rule_to_upgrade_;
+
         friend class Router;
         template <typename T>
         friend struct RuleParameterTraits;
@@ -134,7 +156,7 @@ namespace crow
             struct Wrapped
             {
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                     !std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value
                 , int>::type = 0)
                 {
@@ -168,7 +190,7 @@ namespace crow
                 };
 
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                         std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value &&
                         !std::is_same<typename std::tuple_element<1, std::tuple<Args..., void, void>>::type, response&>::value
                         , int>::type = 0)
@@ -183,7 +205,7 @@ namespace crow
                 }
 
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                         std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value &&
                         std::is_same<typename std::tuple_element<1, std::tuple<Args..., void, void>>::type, response&>::value
                         , int>::type = 0)
@@ -233,10 +255,90 @@ namespace crow
         }
     }
 
+	class WebSocketRule : public BaseRule
+	{
+        using self_t = WebSocketRule;
+	public:
+        WebSocketRule(std::string rule)
+            : BaseRule(std::move(rule))
+        {
+        }
+
+		void validate() override
+		{
+		}
+
+		void handle(const request&, response& res, const routing_params&) override
+		{
+			res = response(404);
+			res.end();
+		}
+
+        void handle_upgrade(const request& req, response&, SocketAdaptor&& adaptor) override 
+		{
+			new crow::websocket::Connection<SocketAdaptor>(req, std::move(adaptor), open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+		}
+#ifdef CROW_ENABLE_SSL
+        void handle_upgrade(const request& req, response&, SSLAdaptor&& adaptor) override
+		{
+			new crow::websocket::Connection<SSLAdaptor>(req, std::move(adaptor), open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+		}
+#endif
+
+		template <typename Func>
+		self_t& onopen(Func f)
+		{
+			open_handler_ = f;
+			return *this;
+		}
+
+		template <typename Func>
+		self_t& onmessage(Func f)
+		{
+			message_handler_ = f;
+			return *this;
+		}
+
+		template <typename Func>
+		self_t& onclose(Func f)
+		{
+			close_handler_ = f;
+			return *this;
+		}
+
+		template <typename Func>
+		self_t& onerror(Func f)
+		{
+			error_handler_ = f;
+			return *this;
+		}
+
+		template <typename Func>
+		self_t& onaccept(Func f)
+		{
+		    accept_handler_ = f;
+		    return *this;
+		}
+
+	protected:
+		std::function<void(crow::websocket::connection&)> open_handler_;
+		std::function<void(crow::websocket::connection&, const std::string&, bool)> message_handler_;
+		std::function<void(crow::websocket::connection&, const std::string&)> close_handler_;
+		std::function<void(crow::websocket::connection&)> error_handler_;
+		std::function<bool(const crow::request&)> accept_handler_;
+	};
+
     template <typename T>
     struct RuleParameterTraits
     {
         using self_t = T;
+		WebSocketRule& websocket() 
+		{
+			auto p =new WebSocketRule(((self_t*)this)->rule_);
+            ((self_t*)this)->rule_to_upgrade_.reset(p);
+			return *p;
+		}
+
         self_t& name(std::string name) noexcept
         {
             ((self_t*)this)->name_ = std::move(name);
@@ -256,6 +358,7 @@ namespace crow
             ((self_t*)this)->methods_ |= 1 << (int)method;
             return (self_t&)*this;
         }
+
     };
 
     class DynamicRule : public BaseRule, public RuleParameterTraits<DynamicRule>
@@ -315,7 +418,7 @@ namespace crow
                 throw std::runtime_error("route_dynamic: Handler type is mismatched with URL parameters: " + rule_);
             }
             auto ret = detail::routing_handler_call_helper::Wrapped<Func, typename function_t::template arg<Indices>...>();
-            ret.template set<
+            ret.template set_<
                 typename function_t::template arg<Indices>...
             >(std::move(f));
             return ret;
@@ -343,7 +446,7 @@ namespace crow
         {
         }
 
-        void validate()
+        void validate() override
         {
             if (!handler_)
             {
@@ -361,10 +464,16 @@ namespace crow
             static_assert(!std::is_same<void, decltype(f(std::declval<Args>()...))>::value, 
                 "Handler function cannot have void return type; valid return types: string, int, crow::resposne, crow::json::wvalue");
 
-                handler_ = [f = std::move(f)](const request&, response& res, Args ... args){
+            handler_ = (
+#ifdef CROW_CAN_USE_CPP14
+                [f = std::move(f)]
+#else
+                [f]
+#endif
+                (const request&, response& res, Args ... args){
                     res = response(f(args...));
                     res.end();
-                };
+                });
         }
 
         template <typename Func>
@@ -380,10 +489,16 @@ namespace crow
             static_assert(!std::is_same<void, decltype(f(std::declval<crow::request>(), std::declval<Args>()...))>::value, 
                 "Handler function cannot have void return type; valid return types: string, int, crow::resposne, crow::json::wvalue");
 
-                handler_ = [f = std::move(f)](const crow::request& req, crow::response& res, Args ... args){
+            handler_ = (
+#ifdef CROW_CAN_USE_CPP14
+                [f = std::move(f)]
+#else
+                [f]
+#endif
+                (const crow::request& req, crow::response& res, Args ... args){
                     res = response(f(req, args...));
                     res.end();
-                };
+                });
         }
 
         template <typename Func>
@@ -809,16 +924,85 @@ public:
             for(auto& rule:rules_)
             {
                 if (rule)
+				{
+					auto upgraded = rule->upgrade();
+					if (upgraded)
+						rule = std::move(upgraded);
                     rule->validate();
+				}
             }
         }
+
+		template <typename Adaptor> 
+		void handle_upgrade(const request& req, response& res, Adaptor&& adaptor)
+		{
+            auto found = trie_.find(req.url);
+            unsigned rule_index = found.first;
+            if (!rule_index)
+            {
+                CROW_LOG_DEBUG << "Cannot match rules " << req.url;
+                res = response(404);
+                res.end();
+                return;
+            }
+
+            if (rule_index >= rules_.size())
+                throw std::runtime_error("Trie internal structure corrupted!");
+
+            if (rule_index == RULE_SPECIAL_REDIRECT_SLASH)
+            {
+                CROW_LOG_INFO << "Redirecting to a url with trailing slash: " << req.url;
+                res = response(301);
+
+                // TODO absolute url building
+                if (req.get_header_value("Host").empty())
+                {
+                    res.add_header("Location", req.url + "/");
+                }
+                else
+                {
+                    res.add_header("Location", "http://" + req.get_header_value("Host") + req.url + "/");
+                }
+                res.end();
+                return;
+            }
+
+            if ((rules_[rule_index]->get_methods() & (1<<(uint32_t)req.method)) == 0)
+            {
+                CROW_LOG_DEBUG << "Rule found but method mismatch: " << req.url << " with " << method_name(req.method) << "(" << (uint32_t)req.method << ") / " << rules_[rule_index]->get_methods();
+                res = response(404);
+                res.end();
+                return;
+            }
+
+            CROW_LOG_DEBUG << "Matched rule (upgrade) '" << rules_[rule_index]->rule_ << "' " << (uint32_t)req.method << " / " << rules_[rule_index]->get_methods();
+
+            // any uncaught exceptions become 500s
+            try
+            {
+                rules_[rule_index]->handle_upgrade(req, res, std::move(adaptor));
+            }
+            catch(std::exception& e)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred: " << e.what();
+                res = response(500);
+                res.end();
+                return;   
+            }
+            catch(...)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred. The type was unknown so no information was available.";
+                res = response(500);
+                res.end();
+                return;   
+            }
+		}
 
         void handle(const request& req, response& res)
         {
             auto found = trie_.find(req.url);
 
             unsigned rule_index = found.first;
-            CROW_LOG_DEBUG << "???" << rule_index;
 
             if (!rule_index)
             {

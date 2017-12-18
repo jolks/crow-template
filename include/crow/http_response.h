@@ -1,22 +1,23 @@
 #pragma once
 #include <string>
 #include <unordered_map>
-#include "json.h"
-#include "http_request.h"
-#include "ci_map.h"
+
+#include "crow/json.h"
+#include "crow/http_request.h"
+#include "crow/ci_map.h"
 
 namespace crow
 {
-    template <typename Handler, typename ... Middlewares>
+    template <typename Adaptor, typename Handler, typename ... Middlewares>
     class Connection;
     struct response
     {
-        template <typename Handler, typename ... Middlewares>
+        template <typename Adaptor, typename Handler, typename ... Middlewares>
         friend class crow::Connection;
 
+        int code{200};
         std::string body;
         json::wvalue json_value;
-        int code{200};
 
         // `headers' stores HTTP headers.
         ci_map headers;
@@ -40,12 +41,16 @@ namespace crow
         response() {}
         explicit response(int code) : code(code) {}
         response(std::string body) : body(std::move(body)) {}
-        response(json::wvalue&& json_value) : json_value(std::move(json_value)) 
+        response(json::wvalue&& json_value) : json_value(std::move(json_value))
         {
-            json_mode();    
+            json_mode();
         }
-        response(int code, std::string body) : body(std::move(body)), code(code) {}
-        response(const json::wvalue& json_value) : body(json::dump(json_value)) 
+        response(int code, std::string body) : code(code), body(std::move(body)) {}
+        response(const json::wvalue& json_value) : body(json::dump(json_value))
+        {
+            json_mode();
+        }
+        response(int code, const json::wvalue& json_value) : code(code), body(json::dump(json_value))
         {
             json_mode();
         }
@@ -81,6 +86,12 @@ namespace crow
             completed_ = false;
         }
 
+        void redirect(const std::string& location)
+        {
+            code = 301;
+            set_header("Location", location);
+        }
+
         void write(const std::string& body_part)
         {
             body += body_part;
@@ -91,7 +102,7 @@ namespace crow
             if (!completed_)
             {
                 completed_ = true;
-                
+
                 if (complete_request_handler_)
                 {
                     complete_request_handler_();
@@ -114,7 +125,7 @@ namespace crow
             bool completed_{};
             std::function<void()> complete_request_handler_;
             std::function<bool()> is_alive_helper_;
-            
+
             //In case of a JSON object, set the Content-Type header
             void json_mode()
             {
