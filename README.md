@@ -1,6 +1,12 @@
 # crow-template
 Template to quickly get started with [Crow](https://github.com/ipkn/crow) C++ micro web framework.
 
+## To Run on Docker
+```
+docker build -t crow-cpp .
+docker run -p 8080:8080 crow-cpp
+```
+
 ## Installation steps
 * On Ubuntu
 ```sh
